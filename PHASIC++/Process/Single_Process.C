@@ -26,7 +26,9 @@ using namespace MODEL;
 using namespace ATOOLS;
 
 Single_Process::Single_Process() :
-  m_lastbxs(0.0), m_lastflux(0.0), m_zero(false)
+  m_lastbxs(0.0), m_lastflux(0.0), m_zero(false),
+  m_reweightscalecutoff(
+      Data_Reader(" ",";","!","=").GetValue<double>("CSS_REWEIGHT_SCALE_CUTOFF", 5.0))
 {
 }
 
@@ -236,8 +238,12 @@ void Single_Process::AddISR(ATOOLS::Cluster_Sequence_Info &csi,
 			 p_int->ISR()->CalcX(-ampl->Leg(1)->Mom()),
 			 f1, f2);
 
+        const double nextshowermuf2fac
+          = (ampl->KT2() > m_reweightscalecutoff) ?  showermuf2fac : 1.0;
+
         // skip equal scales
-        if (IsEqual(currentQ2 / currentscalefactor, ampl->Next() ? showermuf2fac * ampl->KT2() : Q2)) {
+        if (IsEqual(currentQ2 / currentscalefactor,
+                    ampl->Next() ? nextshowermuf2fac * ampl->KT2() : Q2)) {
           msg_Debugging()<<"Skip. Scales equal: t_i="<<currentQ2 / currentscalefactor
                          <<", t_{i+1}="<<(ampl->Next()?ampl->KT2():Q2)
                          <<std::endl;
@@ -288,8 +294,8 @@ void Single_Process::AddISR(ATOOLS::Cluster_Sequence_Info &csi,
           currentQ2 = Q2;
           currentscalefactor = 1.0;
         } else {
-          currentQ2 = showermuf2fac * ampl->KT2();
-          currentscalefactor = showermuf2fac;
+          currentQ2 = nextshowermuf2fac * ampl->KT2();
+          currentscalefactor = nextshowermuf2fac;
         }
 
 	// skip when a scale is below a (quark) mass threshold, new scale
@@ -487,8 +493,22 @@ double Single_Process::Differential(const Vec4D_Vector &p)
       }
     }
     if (p_variationweights) {
-      p_variationweights->UpdateOrInitialiseWeights(&Single_Process::ReweightWithoutSubevents,
-                                                    *this, ampls);
+      // calculate reweighted B(VI) weights
+      p_variationweights->UpdateOrInitialiseWeights(
+          &Single_Process::ReweightWithoutSubevents, *this, ampls);
+      // if needed, calculate reweighted local K factor, i.e. B/BVI
+      if (p_lkfvariationweights) {
+        delete p_lkfvariationweights;
+        p_lkfvariationweights = NULL;
+      }
+      if (m_mcmode == 1 && p_shower && p_shower->UsesBBW()) {
+        p_lkfvariationweights
+          = new SHERPA::Variation_Weights(p_variationweights->GetVariations());
+        p_lkfvariationweights->UpdateOrInitialiseWeights(
+            &Single_Process::ReweightBorn, *this, ampls);
+        *p_lkfvariationweights
+          = (*p_variationweights) / (*p_lkfvariationweights);
+      }
     }
     return m_last;
   }
@@ -570,7 +590,7 @@ SHERPA::Subevent_Weights_Vector Single_Process::ReweightSubevents(
                                            sub->p_ampl);
     info.m_skipsfirstampl = true;
     info.m_fallbackresult = sub->m_result;
-    weights.push_back(ReweightBornLike(varparams, info));
+    weights.push_back(ReweightBornLike(varparams, info, false));
   }
   return weights;
 }
@@ -603,7 +623,7 @@ double Single_Process::ReweightWithoutSubevents(
     info.m_muF2 = m_mewgtinfo.m_muf2;
     info.m_ampls = ampls;
     info.m_skipsfirstampl = false;
-    return ReweightBornLike(varparams, info);
+    return ReweightBornLike(varparams, info, false);
 
   } else { // NLO Born, Virtual Integrated, KP, DADS
     // calculate factors common to all these contributions
@@ -702,9 +722,32 @@ double Single_Process::ReweightWithoutSubevents(
   }
 }
 
+double Single_Process::ReweightBorn(SHERPA::Variation_Parameters * varparams,
+                                    SHERPA::Variation_Weights * varweights,
+                                    ATOOLS::ClusterAmplitude_Vector & ampls)
+{
+  BornLikeReweightingInfo info;
+  info.m_orderqcd = m_mewgtinfo.m_oqcd;
+  info.m_fl1 = m_mewgtinfo.m_fl1;
+  info.m_fl2 = m_mewgtinfo.m_fl2;
+  info.m_x1 = p_int->ISR()->X1();
+  info.m_x2 = p_int->ISR()->X2();
+  info.m_fallbackresult = m_lastb;
+  info.m_wgt = m_mewgtinfo.m_B;
+  info.m_muR2 = m_mewgtinfo.m_mur2;
+  info.m_muF2 = m_mewgtinfo.m_muf2;
+  info.m_ampls = ampls;
+  info.m_skipsfirstampl = false;
+  mewgttype::code nometstype((m_mewgtinfo.m_type & mewgttype::METS) ?
+                             m_mewgtinfo.m_type ^ mewgttype::METS : m_mewgtinfo.m_type);
+  const bool needslowerorderqcd(nometstype & mewgttype::VI || nometstype & mewgttype::KP);
+  return ReweightBornLike(varparams, info, needslowerorderqcd);
+}
+
 double Single_Process::ReweightBornLike(
   SHERPA::Variation_Parameters * varparams,
-  Single_Process::BornLikeReweightingInfo & info)
+  Single_Process::BornLikeReweightingInfo & info,
+  bool decrementalphasorder)
 {
   if (info.m_wgt == 0.0) {
     return 0.0;
@@ -721,7 +764,11 @@ double Single_Process::ReweightBornLike(
     alphasfac *= *it;
   }
   const double newweight(info.m_wgt * alphasfac * csi.m_pdfwgt);
-  return newweight;
+  if (decrementalphasorder && alphasfac != 1.0) {
+    return newweight / alphasratios.back();
+  } else {
+    return newweight;
+  }
 }
 
 std::pair<double, double> Single_Process::GetPairOfPDFValuesOrOne(
@@ -795,7 +842,9 @@ std::vector<double> Single_Process::AlphaSRatios(
   Single_Process::BornLikeReweightingInfo & info) const
 {
   std::vector<double> ratios;
-  if ((m_pinfo.m_ckkw & 1) && (varparams->m_showermuR2fac != 1.0)) {
+  if ((m_pinfo.m_ckkw & 1)
+      && varparams->m_showermuR2fac != 1.0
+      && !info.m_ampls.empty()) {
     // go through cluster sequence
     for (Cluster_Amplitude *ampl(info.m_ampls.front());
          ampl;
@@ -804,12 +853,14 @@ std::vector<double> Single_Process::AlphaSRatios(
         ampl->OrderQCD() - ampl->Next()->OrderQCD() : ampl->OrderQCD();
       if (power > 0) {
         const double mu2(Max(ampl->Mu2(), MODEL::as->CutQ2()));
-        const double mu2new(mu2 * varparams->m_showermuR2fac);
-        const double alphasold(MODEL::as->BoundedAlphaS(mu2));
-        const double alphasnew(varparams->p_alphas->BoundedAlphaS(mu2new));
-        const double alphasratio(alphasnew / alphasold);
-        for (size_t i(0); i < power; i++) {
-          ratios.push_back(alphasratio);
+        if (mu2 > m_reweightscalecutoff) {
+          double mu2new(mu2 * varparams->m_showermuR2fac);
+          const double alphasold(MODEL::as->BoundedAlphaS(mu2));
+          const double alphasnew(varparams->p_alphas->BoundedAlphaS(mu2new));
+          const double alphasratio(alphasnew / alphasold);
+          for (size_t i(0); i < power; i++) {
+            ratios.push_back(alphasratio);
+          }
         }
       }
     }
