@@ -434,6 +434,9 @@ double Single_Process::Differential(const Vec4D_Vector &p)
     m_mewgtinfo.m_mur2=scs->Scale(stp::ren);
     if (m_lastxs==0.0) return m_last=0.0;
     m_last=m_lastxs;
+    // add associated contribs if requested
+//    for (size_t i(0);i<m_mewgtinfo.m_wass.size();++i)
+//      m_last+=m_mewgtinfo.m_wass[i];
     ClusterAmplitude_Vector ampls = scs->Amplitudes().size() ? 
         scs->Amplitudes() : ClusterAmplitude_Vector();
     const double facscale(scs->Scale(stp::fac));
