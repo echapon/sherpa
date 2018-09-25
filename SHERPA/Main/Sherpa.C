@@ -332,7 +332,7 @@ bool Sherpa::SummarizeRun()
                  ((size_t) rpa->gen.Timer().RealTime()-m_evt_starttime)
               <<" evts/day                    "<<std::endl;
   }
-  p_eventhandler->Finish(); 
+  if (p_eventhandler) p_eventhandler->Finish();
   return true; 
 }
 
