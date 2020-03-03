@@ -87,12 +87,11 @@ Hadron_Decay_Handler::~Hadron_Decay_Handler()
 }
 
 void Hadron_Decay_Handler::TreatInitialBlob(ATOOLS::Blob* blob,
-                                            METOOLS::Amplitude2_Tensor* amps,
-                                            const Particle_Vector& origparts)
+                                            METOOLS::Amplitude2_Tensor* amps)
 {
   if (blob->Has(blob_status::needs_showers)) return;
   if (RejectExclusiveChannelsFromFragmentation(blob)) return;
-  Decay_Handler_Base::TreatInitialBlob(blob, amps, origparts);
+  Decay_Handler_Base::TreatInitialBlob(blob, amps);
 }
 
 Decay_Matrix* Hadron_Decay_Handler::FillDecayTree(Blob * blob, Spin_Density* s0)
