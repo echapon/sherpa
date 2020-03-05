@@ -12,8 +12,6 @@ using namespace PDF;
 using namespace std;
 
 Jet_Evolution::Jet_Evolution(Matrix_Element_Handler *_mehandler,
-                             Hard_Decay_Handler * _dechandler,
-                             Decay_Handler_Base *_hdhandler,
 			     MI_Handler *_mihandler,
 			     Soft_Collision_Handler *_schandler,
                              const Shower_Handler_Map& showers)
@@ -24,13 +22,12 @@ Jet_Evolution::Jet_Evolution(Matrix_Element_Handler *_mehandler,
 
   Perturbative_Interface * interface;
   shIter=showers.find(isr::hard_process);
-  interface = new Perturbative_Interface(_mehandler, _dechandler,
-                                           shIter->second);
+  interface = new Perturbative_Interface(_mehandler,
+                                         shIter->second);
   if (interface!=NULL) m_interfaces.insert(make_pair("SignalMEs",interface));
 
   shIter=showers.find(isr::hard_subprocess);
-  interface = new Perturbative_Interface(_hdhandler,
-                                         shIter->second);
+  interface = new Perturbative_Interface(shIter->second);
   if (interface!=NULL) 
     m_interfaces.insert(make_pair("HadronDecays",interface));
 

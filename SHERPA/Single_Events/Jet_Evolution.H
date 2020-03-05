@@ -3,7 +3,6 @@
 
 #include "SHERPA/Single_Events/Event_Phase_Handler.H"
 #include "SHERPA/PerturbativePhysics/Matrix_Element_Handler.H"
-#include "SHERPA/SoftPhysics/Hadron_Decay_Handler.H"
 #include "SHERPA/PerturbativePhysics/Shower_Handler.H"
 #include "SHERPA/PerturbativePhysics/Perturbative_Interface.H"
 #include "SHERPA/SoftPhysics/Soft_Collision_Handler.H"
@@ -31,8 +30,7 @@ namespace SHERPA {
   public :
 
     // constructor
-    Jet_Evolution(Matrix_Element_Handler *, Hard_Decay_Handler*,
-                  Decay_Handler_Base *,MI_Handler *, Soft_Collision_Handler *,
+    Jet_Evolution(Matrix_Element_Handler *, MI_Handler *, Soft_Collision_Handler *,
                   const Shower_Handler_Map &);
 
     // destructor

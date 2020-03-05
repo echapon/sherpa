@@ -29,7 +29,7 @@ Fragmentation_Handler::Fragmentation_Handler(string _dir,string _file):
   dr.SetInputPath(m_dir);
   dr.SetInputFile(m_file);
   m_fragmentationmodel=dr.GetValue<string>("FRAGMENTATION",string("Ahadic"));
-  m_shrink=dr.GetValue<int>("COMPRESS_PARTONIC_DECAYS",1);
+  m_shrink=1; // TODO new decay cascade cannot deal with unshrinked blobs anymore!
   m_flagpartonics=dr.GetValue<int>("FLAG_PARTONIC_DECAYS",1);
   if (m_fragmentationmodel==string("Lund")) {
 #ifndef USING__PYTHIA

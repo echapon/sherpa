@@ -13,8 +13,6 @@
 #include "SHERPA/Single_Events/Signal_Process_FS_QED_Correction.H"
 #include "SHERPA/Single_Events/Beam_Remnants.H"
 #include "SHERPA/Single_Events/Hadronization.H"
-#include "SHERPA/Single_Events/Hadron_Decays.H"
-#include "SHERPA/PerturbativePhysics/Hard_Decay_Handler.H"
 #include "SHERPA/Tools/HepMC2_Interface.H"
 #include "ATOOLS/Math/Random.H"
 #include "ATOOLS/Org/Message.H"
@@ -175,10 +173,9 @@ bool Sherpa::InitializeTheEventHandler()
   else {
     p_eventhandler->AddEventPhase(new Signal_Processes(p_inithandler->GetMatrixElementHandler(),
                                                        p_inithandler->GetVariations()));
-    p_eventhandler->AddEventPhase(new Hard_Decays(p_inithandler->GetHardDecayHandler()));
+    p_eventhandler->AddEventPhase(new Decay_Cascade(p_inithandler->GetDecayHandlers(),
+                                                    p_inithandler->GetSoftPhotonHandler()));
     p_eventhandler->AddEventPhase(new Jet_Evolution(p_inithandler->GetMatrixElementHandler(),
-                                                    p_inithandler->GetHardDecayHandler(),
-						    p_inithandler->GetHDHandler(),
 						    p_inithandler->GetMIHandler(),
 						    p_inithandler->GetSoftCollisionHandler(),
 						    p_inithandler->GetShowerHandlers()));
@@ -188,7 +185,6 @@ bool Sherpa::InitializeTheEventHandler()
     p_eventhandler->AddEventPhase(new Minimum_Bias(p_inithandler->GetSoftCollisionHandler()));
     p_eventhandler->AddEventPhase(new Beam_Remnants(p_inithandler->GetBeamRemnantHandler()));
     p_eventhandler->AddEventPhase(new Hadronization(p_inithandler->GetFragmentationHandler()));
-    p_eventhandler->AddEventPhase(new Hadron_Decays(p_inithandler->GetHDHandler()));
 
   }
   p_eventhandler->AddEventPhase(new Userhook_Phase(this));

@@ -2,16 +2,16 @@
 
 #include "SHERPA/PerturbativePhysics/Shower_Handler.H"
 #include "SHERPA/PerturbativePhysics/Matrix_Element_Handler.H"
-#include "SHERPA/Single_Events/Decay_Handler_Base.H"
-#include "SHERPA/PerturbativePhysics/Hard_Decay_Handler.H"
 #include "SHERPA/PerturbativePhysics/MI_Handler.H"
 #include "SHERPA/SoftPhysics/Soft_Collision_Handler.H"
 #include "PDF/Main/Shower_Base.H"
 #include "ATOOLS/Phys/Cluster_Amplitude.H"
+#include "ATOOLS/Phys/Particle.H"
 #include "PHASIC++/Main/Process_Integrator.H"
 #include "PHASIC++/Process/Single_Process.H"
 #include "PHASIC++/Process/ME_Generator_Base.H"
 #include "PHASIC++/Process/MCatNLO_Process.H"
+#include "PHASIC++/Decays/Decay_Handler.H"
 #include "ATOOLS/Org/Exception.H"
 #include "ATOOLS/Org/MyStrStream.H"
 #include "ATOOLS/Org/Data_Reader.H"
@@ -21,10 +21,25 @@ using namespace SHERPA;
 using namespace PHASIC;
 using namespace ATOOLS;
 
+bool DecayDefineInitialConditions(Cluster_Amplitude* ampl,
+                                  Blob* initial_blob,
+                                  PDF::Cluster_Definitions_Base *p_clus);
+Cluster_Amplitude* DecayClusterConfiguration(Blob *const bl);
+class Had_Mass_Selector : public ATOOLS::Mass_Selector {
+public:
+  inline double Mass(const ATOOLS::Flavour &fl) const { return fl.HadMass(); }
+
+  inline double Mass2(const Flavour &fl) const
+  { double m(Mass(fl)); return m*m; }
+
+};
+
+
 Perturbative_Interface::Perturbative_Interface
-(Matrix_Element_Handler *const meh,Hard_Decay_Handler*const dec,Shower_Handler *const psh):
-  p_me(meh), p_dec(dec), p_mi(NULL), p_hd(NULL), p_sc(NULL), p_shower(psh),
-  p_ampl(NULL), m_cmode(0), p_localkfactorvarweights(NULL)
+(Matrix_Element_Handler *const meh,Shower_Handler *const psh):
+  p_me(meh), p_mi(NULL), p_sc(NULL), p_shower(psh),
+  p_ampl(NULL), m_cmode(0), p_localkfactorvarweights(NULL),
+  p_ms(NULL)
 {
   Data_Reader read(" ",";","!","=");
   read.AddComment("#");
@@ -38,17 +53,17 @@ Perturbative_Interface::Perturbative_Interface
 
 Perturbative_Interface::Perturbative_Interface
 (MI_Handler *const mi,Shower_Handler *const psh):
-  p_me(NULL), p_mi(mi), p_hd(NULL), p_sc(NULL), p_shower(psh),
+  p_me(NULL), p_mi(mi), p_sc(NULL), p_shower(psh), p_ms(NULL),
   p_ampl(NULL), m_cmode(0), p_localkfactorvarweights(NULL) {}
 
 Perturbative_Interface::Perturbative_Interface
-(Decay_Handler_Base *const hdh,Shower_Handler *const psh):
-  p_me(NULL), p_mi(NULL), p_hd(hdh), p_sc(NULL), p_shower(psh),
+(Shower_Handler *const psh):
+  p_me(NULL), p_mi(NULL), p_sc(NULL), p_shower(psh), p_ms(NULL),
   p_ampl(NULL), m_cmode(0), p_localkfactorvarweights(NULL) {}
 
 Perturbative_Interface::Perturbative_Interface
 (Soft_Collision_Handler *const sch,Shower_Handler *const psh):
-  p_me(NULL), p_mi(NULL), p_hd(NULL), p_sc(sch), p_shower(psh),
+  p_me(NULL), p_mi(NULL), p_sc(sch), p_shower(psh), p_ms(NULL),
   p_ampl(NULL), m_cmode(0), p_localkfactorvarweights(NULL)  {}
 
 Perturbative_Interface::~Perturbative_Interface() 
@@ -82,7 +97,7 @@ DefineInitialConditions(ATOOLS::Blob *blob)
     p_ampl=NULL;
   }
   p_shower->CleanUp();
-  msg_Indent();
+  DEBUG_FUNC(blob->Id());
   if (p_mi) {
     p_ampl=p_mi->ClusterConfiguration();
     p_mi->Process()->Generator()->SetMassMode(1);
@@ -103,10 +118,14 @@ DefineInitialConditions(ATOOLS::Blob *blob)
       return Return_Value::New_Event;
     return Return_Value::Success;
   }
-  if (p_hd) {
-    p_ampl=p_hd->ClusterConfiguration(blob);
+  if (blob->Type()==btp::Hadron_Decay) {
+    if (p_ms) delete p_ms; p_ms=NULL;
+    p_ms=new Had_Mass_Selector(); // TODO find proper location
+    p_ampl=DecayClusterConfiguration(blob);
+    p_ampl->SetMS(p_ms);
     if (!p_shower->GetShower()->PrepareShower(p_ampl))
       return Return_Value::New_Event;
+    p_ampl->SetMS(NULL);
     return Return_Value::Success;
   }
   if (p_sc) {
@@ -175,9 +194,8 @@ DefineInitialConditions(ATOOLS::Blob *blob)
     cmax=Max(cmax,(size_t)p_ampl->Leg(i)->Col().m_i);
   while (Flow::Counter()<cmax);
   p_me->Process()->Parent()->SetRBMap(p_ampl);
-  if (p_dec) {
-    p_dec->SetCluster(p_me->Shower()->GetShower()->GetClusterDefinitions());
-    if (!p_dec->DefineInitialConditions(p_ampl, blob)) {
+  if (/*p_dec*/true) {
+    if (!DecayDefineInitialConditions(p_ampl, blob, p_me->Shower()->GetShower()->GetClusterDefinitions())) {
       msg_Tracking()<<METHOD<<"(): Decay clustering failed. Reject event."<<std::endl;
       return Return_Value::Retry_Event;
     }
@@ -288,7 +306,7 @@ bool Perturbative_Interface::FillBlobs(ATOOLS::Blob_List *blobs)
   sblob->SetId();
   sblob->SetPosition(p_hard->Position());
   if (p_shower->On()) {
-    if (!p_hd) {
+    if (p_hard->Type()!=btp::Hadron_Decay) {
       for (int i(0);i<p_hard->NInP();++i)
 	sblob->AddToOutParticles(p_hard->InParticle(i));
       for (size_t j(0);j<blobs->size();++j) {
@@ -314,6 +332,7 @@ bool Perturbative_Interface::FillBlobs(ATOOLS::Blob_List *blobs)
 
 int Perturbative_Interface::PerformShowers()
 {
+  DEBUG_FUNC("");
   // see if the event has any weight
   Blob_Data_Base *winfo((*p_hard)["Weight"]);
   if (!winfo) THROW(fatal_error,"No weight information in signal blob");
@@ -341,6 +360,7 @@ int Perturbative_Interface::PerformShowers()
 
 int Perturbative_Interface::PerformDecayShowers()
 { 
+  DEBUG_FUNC("");
   return p_shower->GetShower()->PerformDecayShowers(); 
 }
 
@@ -353,3 +373,521 @@ void Perturbative_Interface::CleanUp()
   p_shower->CleanUp();
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+// TODO: move to proper place
+#include <algorithm>
+using namespace std;
+typedef std::pair<ATOOLS::Particle *,ATOOLS::Particle *> ParticlePair;
+typedef std::vector<ParticlePair> ParticlePair_Vector;
+
+class ParticlePairFirstEnergySort {
+public:
+  bool operator()(const ParticlePair& a,const ParticlePair& b)
+  { return (a.first->Momentum()[0]<b.first->Momentum()[0]); }
+};
+
+
+void AssignPhotons(const Particle_Vector& daughters,
+                                       ParticlePair_Vector& photons)
+{
+  // for every photon, find charged particle that's closest
+  // ignore radiation off charged resonance for now
+  if (photons.size()) {
+    Particle_Vector cdaughters;
+    for (size_t i(0);i<daughters.size();++i)
+      if (daughters[i]->Flav().Charge()) cdaughters.push_back(daughters[i]);
+    if (cdaughters.size()==1) {
+      for (size_t i(0);i<photons.size();++i)
+        photons[i].second=cdaughters[0];
+    }
+    else {
+      Vec4D cmom(0.,0.,0.,0.);
+      Vec4D_Vector cmoms;
+      for (size_t i(0);i<cdaughters.size();++i) {
+        cmoms.push_back(cdaughters[i]->Momentum());
+        cmom+=cmoms[i];
+      }
+      Poincare ccms(cmom);
+      for (size_t i(0);i<cdaughters.size();++i) ccms.Boost(cmoms[i]);
+      for (size_t i(0);i<photons.size();++i){
+        Vec4D pmom(photons[i].first->Momentum());
+        ccms.Boost(pmom);
+        size_t id(0);
+        double dR(pmom.DR(cmoms[0]));
+        for (size_t j(1);j<cmoms.size();++j) {
+          double dRj(pmom.DR(cmoms[j]));
+          if (dRj<dR) { id=j; dR=dRj; }
+        }
+        photons[i].second=cdaughters[id];
+      }
+    }
+    for (size_t i(0);i<photons.size();++i) {
+      if (photons[i].first==photons[i].second)
+        THROW(fatal_error,"Photon has not been assigned.");
+      msg_Debugging()<<photons[i].first->Flav()<<" "
+                     <<photons[i].first->Momentum()
+                     <<" assigned to "<<photons[i].second->Flav()<<std::endl;
+    }
+  }
+}
+
+Vec4D RecombinedMomentum(const Particle * daughter,
+                                             const ParticlePair_Vector& photons,
+                                             size_t& stat)
+{
+  Vec4D mom(0.,0.,0.,0.);
+  for (size_t i(0);i<photons.size();++i) {
+    if (photons[i].second==daughter) {
+      mom+=photons[i].first->Momentum();
+      stat|=2|4;
+    }
+  }
+  msg_Debugging()<<daughter->Flav()<<": "<<mom<<" "<<stat<<std::endl;
+  return mom+daughter->Momentum();
+}
+
+
+void AddPhotonsClustering(Cluster_Amplitude*& ampl,
+                                              const Particle_Vector daughters,
+                                              ParticlePair_Vector& photons,
+                                              size_t& imax,
+                                              const std::vector<size_t>& ids)
+{
+  DEBUG_FUNC(photons.size()<<" photons to be clustered");
+  Particle * photon(photons.back().first);
+  Particle * daughter(photons.back().second);
+  photons.pop_back();
+  size_t idmother(0);
+  if      (daughter==daughters[0]) idmother=ids[0];
+  else if (daughter==daughters[1]) idmother=ids[1];
+  else if (daughter==daughters[2]) idmother=ids[2];
+  else THROW(fatal_error,"Did not find id for "+daughter->Flav().IDName());
+  msg_Debugging()<<"Cluster "<<photon->Flav()<<" "<<photon->Momentum()
+                <<" with "<<daughter->Flav()<<" "<<ID(idmother)<<std::endl;
+  Cluster_Amplitude* copy=ampl->InitPrev();
+  copy->CopyFrom(ampl);
+  copy->SetNLO(0);
+  copy->SetFlag(1);
+  copy->SetMS(ampl->MS());
+  Cluster_Leg *lij(ampl->IdLeg(idmother));
+  for (size_t i=0; i<ampl->Legs().size(); ++i)
+    ampl->Leg(i)->SetStat(ampl->Leg(i)->Stat()|1);
+  lij->SetStat(1|2|4);
+  size_t idk(0);
+  for (size_t i=0; i<copy->Legs().size(); ++i) {
+    copy->Leg(i)->SetK(0);
+    if (copy->Leg(i)->Id()!=idmother &&
+        (copy->Leg(i)->Col().m_i==lij->Col().m_j ||
+         copy->Leg(i)->Col().m_j==lij->Col().m_i))
+      idk=copy->Leg(i)->Id();
+  }
+  if (lij->Col().m_i==0 && lij->Col().m_j==0) {
+    // Ad hoc QED partner, must not be another soft photon
+    size_t ampl_nout=ampl->Legs().size()-ampl->NIn();
+    if (ampl_nout==1) idk=ampl->Leg(0)->Id();
+    else {
+      size_t select=ampl->Legs().size();
+      size_t nvalid=0;
+      for (size_t i(ampl->NIn());i<ampl->Legs().size();++i) {
+        if (!(ampl->Leg(i)->Id()&idmother || i>ampl->Legs().size()-1 ||
+              ampl->Leg(i)->Flav().Kfcode()==kf_photon)) {
+          nvalid++;
+        }
+      }
+      if (nvalid==0) select=0;
+      else {
+        do {
+          select=ampl->NIn()+floor(ran->Get()*ampl_nout);
+        } while (ampl->Leg(select)->Id()&idmother ||
+                 select>ampl->Legs().size()-1 ||
+                 ampl->Leg(select)->Flav().Kfcode()==kf_photon);
+      }
+      msg_Debugging()<<"choose ("<<ID(ampl->Leg(select)->Id())<<") "
+                     <<ampl->Leg(select)->Flav()<<std::endl;
+      idk=ampl->Leg(select)->Id();
+    }
+  }
+  else THROW(fatal_error,"Adding QED to coloured particle.");
+  if (idk==0) THROW(fatal_error,"Colour partner not found");
+  lij->SetK(idk);
+  Cluster_Leg *d1(copy->IdLeg(idmother));
+  size_t stat1(0), stat2(0);
+  d1->SetMom(RecombinedMomentum(daughter,photons,stat1));
+  d1->SetStat(stat1);
+  d1->SetFlav(daughter->Flav());
+  copy->CreateLeg(photon->Momentum(),photon->RefFlav());
+  size_t idnew=1<<(++imax);
+  copy->Legs().back()->SetId(idnew);
+  copy->Legs().back()->SetStat(stat2);
+  Cluster_Amplitude::SetColours(ampl->IdLeg(idmother),
+                                copy->IdLeg(idmother),
+                                copy->Legs().back());
+  DEBUG_VAR(*copy);
+  Cluster_Amplitude* tmp=copy;
+  while (tmp->Next()) {
+    tmp=tmp->Next();
+    for (size_t i=0; i<tmp->Legs().size(); ++i) {
+      if (tmp->Leg(i)->Id()&idmother) {
+        tmp->Leg(i)->SetId(tmp->Leg(i)->Id()|idnew);
+      }
+      if (tmp->Leg(i)->K()&idmother) {
+        tmp->Leg(i)->SetK(tmp->Leg(i)->K()|idnew);
+      }
+    }
+    DEBUG_VAR(*tmp);
+  }
+  ampl=copy;
+}
+
+void AddDecayClustering(ATOOLS::Cluster_Amplitude*& ampl,
+                                            Blob* blob,
+                                            size_t& imax,
+                                            size_t idmother)
+{
+  DEBUG_FUNC("blob->Id()="<<blob->Id()<<" idmother="<<ID(idmother));
+  DEBUG_VAR(*blob);
+  Particle_Vector daughters;
+  ParticlePair_Vector photons;
+  for (size_t i(0);i<blob->GetOutParticles().size();++i) {
+    Particle * p(blob->OutParticle(i));
+    if (p->Info()=='S') photons.push_back(make_pair(p,p));
+    else                daughters.push_back(p);
+  }
+  std::sort(photons.begin(),photons.end(),ParticlePairFirstEnergySort());
+  msg_Debugging()<<"daughters: ";
+  for (size_t i(0);i<daughters.size();++i)
+    msg_Debugging()<<daughters[i]->Flav().IDName()<<" ";
+  msg_Debugging()<<" +  "<<photons.size()<<" soft photon(s)"<<std::endl;
+  AssignPhotons(daughters,photons);
+  if (daughters.size()==2) {
+    msg_Debugging()<<"1 to 2 case"<<std::endl;
+    Cluster_Amplitude* copy=ampl->InitPrev();
+    copy->CopyFrom(ampl);
+    copy->SetNLO(0);
+    copy->SetFlag(1);
+    copy->SetMS(ampl->MS());
+    Cluster_Leg *lij(ampl->IdLeg(idmother));
+    copy->SetKT2(lij->Mom().Abs2());
+    for (size_t i=0; i<ampl->Legs().size(); ++i)
+      ampl->Leg(i)->SetStat(ampl->Leg(i)->Stat()|1);
+    lij->SetStat(1|2|4);
+    size_t idk(0);
+    for (size_t i=0; i<copy->Legs().size(); ++i) {
+      copy->Leg(i)->SetK(0);
+      if (copy->Leg(i)->Id()!=idmother &&
+          (copy->Leg(i)->Col().m_i==lij->Col().m_j ||
+           copy->Leg(i)->Col().m_j==lij->Col().m_i))
+        idk=copy->Leg(i)->Id();
+    }
+    if (lij->Col().m_i==0 && lij->Col().m_j==0) {
+      // Ad hoc EW partner
+      size_t ampl_nout=ampl->Legs().size()-ampl->NIn();
+      if (ampl_nout==1) idk=ampl->Leg(0)->Id();
+      else {
+        size_t select=ampl->Legs().size();
+        do {
+          select=ampl->NIn()+floor(ran->Get()*ampl_nout);
+        } while (ampl->Leg(select)->Id()&idmother ||
+                 select>ampl->Legs().size()-1);
+        idk=ampl->Leg(select)->Id();
+      }
+    }
+    if (idk==0) THROW(fatal_error,"Colour partner not found");
+    lij->SetK(idk);
+    Cluster_Leg *d1(copy->IdLeg(idmother));
+    size_t stat1(0), stat2(0);
+    d1->SetMom(RecombinedMomentum(daughters[0],photons,stat1));
+    d1->SetStat(stat1);
+    d1->SetFlav(daughters[0]->Flav());
+    d1->SetFromDec(true);
+    copy->CreateLeg(RecombinedMomentum(daughters[1],photons,stat2),
+                    daughters[1]->RefFlav());
+    copy->Legs().back()->SetFromDec(true);
+    size_t idnew=1<<(++imax);
+    copy->Legs().back()->SetId(idnew);
+    copy->Legs().back()->SetStat(stat2);
+    Cluster_Amplitude::SetColours(ampl->IdLeg(idmother),
+                                  copy->IdLeg(idmother),
+                                  copy->Legs().back());
+    DEBUG_VAR(*copy);
+    Cluster_Amplitude* tmp=copy;
+    while (tmp->Next()) {
+      tmp=tmp->Next();
+      for (size_t i=0; i<tmp->Legs().size(); ++i) {
+        if (tmp->Leg(i)->Id()&idmother) {
+          tmp->Leg(i)->SetId(tmp->Leg(i)->Id()|idnew);
+	}
+        if (tmp->Leg(i)->K()&idmother) {
+          tmp->Leg(i)->SetK(tmp->Leg(i)->K()|idnew);
+        }
+      }
+      DEBUG_VAR(*tmp);
+    }
+    std::vector<size_t> ids;
+    ids.push_back(idmother);
+    ids.push_back(idnew);
+    while (photons.size())
+      AddPhotonsClustering(copy, daughters, photons, imax, ids);
+    if (daughters[0]->DecayBlob())
+      AddDecayClustering(copy, daughters[0]->DecayBlob(), imax, idmother);
+    if (daughters[1]->DecayBlob())
+      AddDecayClustering(copy, daughters[1]->DecayBlob(), imax, idnew);
+    ampl=copy;
+  }
+  else if (daughters.size()==3) {
+    msg_Debugging()<<"1 to 3 case"<<std::endl;
+    // structure m -> 0 P[->1 2]
+    // propagator always combines daughters 1+2
+    Cluster_Amplitude* step1=ampl->InitPrev();
+    step1->CopyFrom(ampl);
+    step1->SetNLO(0);
+    step1->SetFlag(1);
+    step1->SetMS(ampl->MS());
+    Cluster_Leg *lij(ampl->IdLeg(idmother));
+    step1->SetKT2(lij->Mom().Abs2());
+    if (!lij) THROW(fatal_error,"Cluster leg of id "+ToString(idmother)
+                                +" not found.");
+    for (size_t i=0; i<ampl->Legs().size(); ++i)
+      ampl->Leg(i)->SetStat(ampl->Leg(i)->Stat()|1);
+    lij->SetStat(1|2|4);
+    size_t idk(0);
+    for (size_t i=0; i<step1->Legs().size(); ++i) {
+      step1->Leg(i)->SetK(0);
+      if (step1->Leg(i)->Id()!=idmother)
+	if (step1->Leg(i)->Col().m_i==lij->Col().m_j ||
+	    step1->Leg(i)->Col().m_j==lij->Col().m_i) 
+	  idk=step1->Leg(i)->Id();
+    }
+    if (lij->Col().m_i==0 && lij->Col().m_j==0) {
+      // Ad hoc EW partner
+      size_t ampl_nout=ampl->Legs().size()-ampl->NIn();
+      if (ampl_nout==1) idk=ampl->Leg(0)->Id();
+      else {
+        size_t select=ampl->Legs().size();
+        do {
+          select=ampl->NIn()+floor(ran->Get()*ampl_nout);
+        } while (ampl->Leg(select)->Id()&idmother || select>ampl->Legs().size()-1);
+        idk=ampl->Leg(select)->Id();
+      }
+    }
+    if (idk==0) THROW(fatal_error,"Colour partner not found");
+    lij->SetK(idk);
+    Cluster_Leg *d1(step1->IdLeg(idmother));
+    size_t stat1(0),stat2(0),stat3(0);
+    d1->SetMom(RecombinedMomentum(daughters[0],photons,stat1));
+    d1->SetStat(stat1);
+    d1->SetFlav(daughters[0]->Flav());
+    d1->SetFromDec(true);
+    // todo: 1->2 qcd shower with ew fs recoil partner
+    // d1->SetK(idmother);// not that simple: w->qq' has color connection in fs
+    Flavour prop_flav=blob->InParticle(0)->Flav().DecayHandler()->PropFlav(blob);
+    Vec4D momd2=RecombinedMomentum(daughters[1],photons,stat2);
+    Vec4D momd3=RecombinedMomentum(daughters[2],photons,stat3);
+    Vec4D prop_mom=momd2+momd3;
+    step1->CreateLeg(prop_mom, prop_flav);
+    size_t idnew1=1<<(++imax);
+    step1->Legs().back()->SetId(idnew1);
+    step1->Legs().back()->SetStat(0);
+    step1->Legs().back()->SetFromDec(true);
+    Cluster_Amplitude::SetColours(ampl->IdLeg(idmother),
+                                  step1->IdLeg(idmother),
+                                  step1->Legs().back());
+    DEBUG_VAR(*step1);
+    Cluster_Amplitude* tmp=step1;
+    while (tmp->Next()) {
+      tmp=tmp->Next();
+      for (size_t i=0; i<tmp->Legs().size(); ++i) {
+        if (tmp->Leg(i)->Id()&idmother) {
+          tmp->Leg(i)->SetId(tmp->Leg(i)->Id()|idnew1);
+	}
+        if (tmp->Leg(i)->K()&idmother) {
+          tmp->Leg(i)->SetK(tmp->Leg(i)->K()|idnew1);
+        }
+      }
+      DEBUG_VAR(*tmp);
+    }
+
+    
+    Cluster_Amplitude* step2=step1->InitPrev();
+    step2->CopyFrom(step1);
+    step2->SetNLO(0);
+    step2->SetFlag(1);
+    step2->SetMS(step1->MS());
+    for (size_t i=0; i<step1->Legs().size(); ++i)
+      step1->Leg(i)->SetStat(step1->Leg(i)->Stat()|1);
+    step1->IdLeg(idnew1)->SetStat(1|4);
+    step1->IdLeg(idnew1)->SetK(idk);
+    for (size_t i=0; i<step2->Legs().size(); ++i) step2->Leg(i)->SetK(0);
+    Cluster_Leg *d2(step2->IdLeg(idnew1));
+    d2->SetMom(momd2);
+    d2->SetStat(stat2);
+    d2->SetFlav(daughters[1]->Flav());
+    step2->CreateLeg(momd3, daughters[2]->Flav());
+    size_t idnew2=1<<(++imax);
+    step2->Legs().back()->SetId(idnew2);
+    step2->Legs().back()->SetStat(stat3);
+    step2->Legs().back()->SetFromDec(true);
+    Cluster_Amplitude::SetColours(step1->IdLeg(idnew1),
+                                  step2->IdLeg(idnew1),
+                                  step2->Legs().back());
+    DEBUG_VAR(*step2);
+    tmp=step2;
+    while (tmp->Next()) {
+      tmp=tmp->Next();
+      for (size_t i=0; i<tmp->Legs().size(); ++i) {
+        if (tmp->Leg(i)->Id()&idnew1) {
+          tmp->Leg(i)->SetId(tmp->Leg(i)->Id()|idnew2);
+	}
+        if (tmp->Leg(i)->K()&idnew1) {
+          tmp->Leg(i)->SetK(tmp->Leg(i)->K()|idnew2);
+        }
+      }
+      DEBUG_VAR(*tmp);
+    }
+
+    std::vector<size_t> ids;
+    ids.push_back(idmother);
+    ids.push_back(idnew1);
+    ids.push_back(idnew2);
+    while (photons.size())
+      AddPhotonsClustering(step2,daughters,photons,imax,ids);
+    if (daughters[0]->DecayBlob())
+      AddDecayClustering(step2, daughters[0]->DecayBlob(), imax, idmother);
+    if (daughters[1]->DecayBlob())
+      AddDecayClustering(step2, daughters[1]->DecayBlob(), imax, idnew1);
+    if (daughters[2]->DecayBlob())
+      AddDecayClustering(step2, daughters[2]->DecayBlob(), imax, idnew2);
+    ampl=step2;
+  }
+  else {
+    PRINT_VAR(*blob);
+    THROW(fatal_error, "1 -> n not implemented yet.");
+  }
+}
+
+bool DecayDefineInitialConditions(Cluster_Amplitude* ampl,
+                                  Blob* initial_blob,
+                                  PDF::Cluster_Definitions_Base *p_clus)
+{
+  DEBUG_FUNC("");
+  DEBUG_VAR(*ampl);
+  for (int i=0; i<initial_blob->NOutP(); ++i) {
+    ampl->Leg(initial_blob->NInP()+i)->SetMom
+      (initial_blob->OutParticle(i)->Momentum());
+  }
+  if (p_clus->ReCluster(ampl)<0) return false;
+  if (ampl->NIn()==2) {
+    for (Cluster_Amplitude *campl(ampl);
+	 campl;campl=campl->Next()) {
+      if (-campl->Leg(0)->Mom()[0]>rpa->gen.PBeam(0)[0] ||
+	  -campl->Leg(1)->Mom()[0]>rpa->gen.PBeam(1)[0])
+	return false;
+    }
+  }
+  size_t imax=ampl->Legs().size()-1;
+  for (int i=0; i<initial_blob->NOutP(); ++i) {
+    if (initial_blob->OutParticle(i)->DecayBlob()) {
+      AddDecayClustering(ampl, initial_blob->OutParticle(i)->DecayBlob(),
+                         imax, 1<<(initial_blob->NInP()+i));
+    }
+  }
+  return true;
+}
+
+
+
+
+
+// needed for hadron decay + showers:
+Cluster_Amplitude* DecayClusterConfiguration(Blob *const bl)
+{
+  bool m_cluster=false;
+  msg_Indent();
+  Cluster_Amplitude* p_ampl = Cluster_Amplitude::New();
+  //p_ampl->SetMS(this);
+  for (int i(0);i<bl->NInP();++i) {
+    Particle *p(bl->InParticle(i));
+    ColorID col(p->GetFlow(2),p->GetFlow(1));
+    p_ampl->CreateLeg(-p->Momentum(),p->Flav().Bar(),col,1<<i);
+  }
+  p_ampl->SetNIn(bl->NInP());
+  for (int i(0);i<bl->NOutP();++i) {
+    Particle *p(bl->OutParticle(i));
+    if (p->GetFlow(1)==0 && p->GetFlow(2)==0) continue;
+    ColorID col(p->GetFlow(1),p->GetFlow(2));
+    p_ampl->CreateLeg(p->Momentum(),p->Flav(),col,1<<(i+p_ampl->NIn()));
+  }
+  while (m_cluster && p_ampl->Legs().size()>p_ampl->NIn()+2) {
+    msg_Debugging()<<*p_ampl<<"\n";
+    Cluster_Amplitude *ampl(p_ampl);
+    p_ampl = p_ampl->InitNext();
+    //p_ampl->SetMS(this);
+    for (size_t i(0);i<ampl->NIn();++i) {
+      Cluster_Leg *cl(ampl->Leg(i));
+      p_ampl->CreateLeg(cl->Mom(),cl->Flav(),cl->Col(),cl->Id());
+    }
+    p_ampl->SetNIn(ampl->NIn());
+    Cluster_Leg *lij(NULL);
+    for (size_t i(ampl->NIn());i<ampl->Legs().size()-1;++i) {
+      Cluster_Leg *li(ampl->Leg(i));
+      for (size_t j(i+1);j<ampl->Legs().size();++j) {
+        Cluster_Leg *lj(ampl->Leg(j));
+        ColorID nc;
+        if (li->Col().m_i==0 && li->Col().m_j==0) {
+          nc=lj->Col();
+        }
+        else if (lj->Col().m_i==0 && lj->Col().m_j==0) {
+          nc=li->Col();
+        }
+        else if (li->Col().m_i && li->Col().m_i==lj->Col().m_j) {
+          nc.m_i=lj->Col().m_i;
+          nc.m_j=li->Col().m_j;
+        }
+        else if (li->Col().m_j && li->Col().m_j==lj->Col().m_i) {
+          nc.m_i=li->Col().m_i;
+          nc.m_j=lj->Col().m_j;
+        }
+        if (nc.m_i>=0 && nc.m_j>=0) {
+          Flavour fl(kf_photon);
+          if (nc.m_i && nc.m_j) fl=Flavour(kf_gluon);
+          else if (nc.m_i) fl=Flavour(kf_d);
+          else if (nc.m_j) fl=Flavour(kf_d).Bar();
+          p_ampl->CreateLeg(li->Mom()+lj->Mom(),fl,nc,li->Id()+lj->Id());
+          lij=p_ampl->Legs().back();
+          break;
+        }
+      }
+      if (lij) break;
+    }
+    if (lij==NULL) THROW(fatal_error,"Internal eror");
+    for (size_t i(ampl->NIn());i<ampl->Legs().size();++i) {
+      Cluster_Leg *cl(ampl->Leg(i));
+      if (cl->Id()&lij->Id()) continue;
+      p_ampl->CreateLeg(cl->Mom(),cl->Flav(),cl->Col(),cl->Id());
+    }
+  }
+  double mu2=p_ampl->Leg(0)->Mom().Abs2();
+  p_ampl->SetMuF2(mu2);
+  p_ampl->SetKT2(mu2);
+  p_ampl->SetMuQ2(mu2);
+  msg_Debugging()<<*p_ampl<<"\n";
+  while (p_ampl->Prev()) {
+    p_ampl=p_ampl->Prev();
+    p_ampl->SetMuF2(mu2);
+    p_ampl->SetKT2(mu2);
+    p_ampl->SetMuQ2(mu2);
+  }
+  msg_Debugging()<<"}\n";
+  return p_ampl;
+}

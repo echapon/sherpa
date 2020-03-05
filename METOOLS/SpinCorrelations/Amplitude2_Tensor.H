@@ -8,9 +8,6 @@
 #include "ATOOLS/Phys/Particle.H"
 
 namespace METOOLS {
-  class Decay_Matrix;
-
-
   class Amplitude2_Tensor {
     std::vector<Amplitude2_Tensor*>* p_next;
     Complex m_value;
@@ -40,6 +37,7 @@ namespace METOOLS {
     ~Amplitude2_Tensor();
 
     void Contract(const Amplitude2_Matrix* D);
+    void ContractDiagonal(const ATOOLS::Particle* p);
     Amplitude2_Matrix ReduceToMatrix(const ATOOLS::Particle* leftover) const;
     void Add(const Amplitude2_Tensor* amp, const Complex& factor);
     void Multiply(const Complex& factor);
