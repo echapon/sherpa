@@ -6,7 +6,7 @@
 #include "SHERPA/Single_Events/Output_Phase.H"
 #include "SHERPA/Single_Events/EvtReadin_Phase.H"
 #include "SHERPA/Single_Events/Signal_Processes.H"
-#include "SHERPA/Single_Events/Hard_Decays.H"
+#include "SHERPA/Single_Events/Decay_Cascade.H"
 #include "SHERPA/Single_Events/Minimum_Bias.H"
 #include "SHERPA/Single_Events/Multiple_Interactions.H"
 #include "SHERPA/Single_Events/Jet_Evolution.H"

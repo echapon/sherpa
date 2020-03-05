@@ -1,5 +1,5 @@
-#ifndef SHERPA_Single_Events_Hard_Decays_H
-#define SHERPA_Single_Events_Hard_Decays_H
+#ifndef SHERPA_Single_Events_Decay_Cascade_H
+#define SHERPA_Single_Events_Decay_Cascade_H
 
 #include "SHERPA/Single_Events/Event_Phase_Handler.H"
 

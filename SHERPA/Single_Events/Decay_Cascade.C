@@ -1,4 +1,4 @@
-#include "SHERPA/Single_Events/Hard_Decays.H"
+#include "SHERPA/Single_Events/Decay_Cascade.H"
 
 #include "ATOOLS/Phys/Particle.H"
 #include "ATOOLS/Phys/Blob.H"

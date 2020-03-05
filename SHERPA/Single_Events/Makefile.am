@@ -12,7 +12,7 @@ libSherpaSingleEvents_la_SOURCES      =	\
 					Minimum_Bias.C \
 					Jet_Evolution.C \
 					Signal_Process_FS_QED_Correction.C \
-					Hard_Decays.C \
+					Decay_Cascade.C \
 					Beam_Remnants.C \
 					Hadronization.C \
 					Userhook_Phase.C \
@@ -28,7 +28,7 @@ localinc_HEADERS      =	\
 			Minimum_Bias.H \
 			Jet_Evolution.H \
 			Signal_Process_FS_QED_Correction.H \
-			Hard_Decays.H \
+			Decay_Cascade.H \
 			Beam_Remnants.H \
 		 	Hadronization.H \
 			Userhook_Phase.H \
