@@ -251,6 +251,7 @@ bool Primordial_KPerp::FindConnected(ATOOLS::Particle *particle,ATOOLS::Particle
         if (next!=particle && 
 	    next->ProductionBlob()->Type()!=btp::Signal_Process &&
 	    next->ProductionBlob()->Type()!=btp::Hard_Decay &&
+	    next->ProductionBlob()->Type()!=btp::Hadron_Decay &&
 	    next->ProductionBlob()->Type()!=btp::Hard_Collision) 
 	  if (FindConnected(next,connected,false,catcher)) return true;
       }

@@ -297,6 +297,15 @@ bool Perturbative_Interface::LocalKFactor(ATOOLS::Cluster_Amplitude* ampl)
   return false;
 }
 
+bool AreConnected(Blob* blob, Blob* upstream)
+{
+  do {
+    if (blob==upstream) return true;
+    blob=blob->UpstreamBlob();
+  } while (blob!=NULL);
+  return false;
+}
+
 bool Perturbative_Interface::FillBlobs(ATOOLS::Blob_List *blobs)
 {
   if (p_hard==NULL) return false;
@@ -311,7 +320,7 @@ bool Perturbative_Interface::FillBlobs(ATOOLS::Blob_List *blobs)
 	sblob->AddToOutParticles(p_hard->InParticle(i));
       for (size_t j(0);j<blobs->size();++j) {
         Blob *cb((*blobs)[j]);
-        if (cb->Has(blob_status::needs_showers))
+        if (cb->Has(blob_status::needs_showers) || AreConnected(cb, p_hard))
           for (int i(0);i<cb->NOutP();++i)
             if (cb->OutParticle(i)->DecayBlob()==NULL)
               sblob->AddToInParticles(cb->OutParticle(i));
