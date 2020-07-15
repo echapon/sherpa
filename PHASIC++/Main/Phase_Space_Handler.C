@@ -50,7 +50,7 @@ Phase_Space_Handler::Phase_Space_Handler(Process_Integrator *proc,double error):
   m_maxtrials = s["MAX_TRIALS"].Get<int>();
   m_fin_opt = s["FINISH_OPTIMIZATION"].Get<bool>();
   m_enhancexs = s["ENHANCE_XS"].Get<int>();
-  m_printpspoint = s["PRINT_PS_POINTS"].Get<int>();
+  m_printpspoint = s["PRINT_PS_POINTS"].Get<bool>();
   m_enhance = 1.0;
   if (error>0.) {
     m_error   = error;
