@@ -94,10 +94,10 @@ namespace ATOOLS {
         // 1*n
         assert(type != Variations_Type::custom);
         assert(type == Variations_Type::qcd
-                   ? rhs.size() == s_variations->Size(Variations_Type::qcd)
+                   ? rhs.size() == s_variations->Size(Variations_Type::qcd) + 1
                    : true);
         assert(type == Variations_Type::qcut
-                   ? rhs.size() == s_variations->Size(Variations_Type::qcut)
+                   ? rhs.size() == s_variations->Size(Variations_Type::qcut) + 1
                    : true);
         const auto weight = Nominal();
         weights.clear();
@@ -168,6 +168,12 @@ namespace ATOOLS {
     double& operator[](const std::string& key)
     {
       auto it = std::find(names.begin(), names.end(), key);
+      if (names.empty()) {
+        names.push_back("Nominal");
+        names.push_back(key);
+        weights.push_back(weights[0]);
+        return weights.back();
+      }
       if (it == names.end()) {
         names.push_back(key);
         weights.push_back(weights.empty() ? 1.0 : weights.front());
