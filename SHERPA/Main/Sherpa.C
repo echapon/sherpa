@@ -283,12 +283,13 @@ bool Sherpa::GenerateOneEvent(bool reset)
     return 0;
 }
 
-void Sherpa::FillHepMCEvent(HepMC::GenEvent& event)
+void Sherpa::FillHepMCEvent(HepMC::GenEvent& event, bool shortHepMC)
 {
 #ifdef USING__HEPMC2
   if (p_hepmc2==NULL) p_hepmc2 = new SHERPA::HepMC2_Interface();
   ATOOLS::Blob_List* blobs=GetEventHandler()->GetBlobs();
-  p_hepmc2->Sherpa2HepMC(blobs, event, blobs->Weight());
+  if (shortHepMC) p_hepmc2->Sherpa2ShortHepMC(blobs, event, blobs->Weight());
+  else p_hepmc2->Sherpa2HepMC(blobs, event, blobs->Weight());
   p_hepmc2->AddCrossSection(event, TotalXS(), TotalErr());
 #else
   THROW(fatal_error, "HepMC not linked.");

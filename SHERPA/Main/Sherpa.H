@@ -42,7 +42,7 @@ namespace SHERPA {
     bool InitializeTheEventHandler();
 
     bool GenerateOneEvent(bool reset=true);
-    void FillHepMCEvent(HepMC::GenEvent& event);
+    void FillHepMCEvent(HepMC::GenEvent& event, bool shortHepMC=false);
 
     double TotalXS();
     double TotalErr();
